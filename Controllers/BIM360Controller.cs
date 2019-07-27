@@ -114,14 +114,12 @@ namespace forgeSample.Controllers
             JArray issues = new JArray();
             dynamic response = null;
             int offset = 0;
-            string next = null;
             do
             {
                 response = await GetResourceAsync(await GetContainerAsync(hubId, projectId), "quality-issues", offset);
                 issues.Merge(response.data);
                 offset += 50;
-                next = (string)response.links.next;
-            } while (response.links.next != null);
+            } while (!string.IsNullOrEmpty((string)response.links.next));
 
 
             return issues;

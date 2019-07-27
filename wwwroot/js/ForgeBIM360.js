@@ -79,29 +79,36 @@ function prepareListOfProjects() {
   });
 }
 
+var projectData = {}; // cache list of issues
+
 function updateSelected() {
-  var projectIds = [];
   $('.list-group-item').each(function (i, item) {
-    if (!$(item).hasClass('active')) return;
-    projectIds.push({ hubId: $(item).attr('hubId'), projectId: $(item).attr('projectId') });
+    var id = $(item).attr('hubId') + '|' + $(item).attr('projectId');
+    if (!$(item).hasClass('active')) {
+      if (projectData[id] !== null) { projectData[id] = null; drawCharts(projectData); }
+      projectData[id] = null;
+    }
+    else if (projectData[id] === undefined || projectData[id] === null) {
+      $("#charts").append('<div id="loading" class="loadingspinner"></div>');
+      jQuery.ajax({
+        url: 'api/forge/bim360/hubs/' + $(item).attr('hubId') + '/projects/' + $(item).attr('projectId') + '/quality-issues',
+        success: function (response) {
+          projectData[id] = response;
+          drawCharts(projectData);
+        }
+      })
+    }
   })
-  var issues = [];
-  projectIds.forEach(function (project) {
-    $("#charts").append('<div id="loadingdata" class="loadingspinner"></div>');
-    jQuery.ajax({
-      url: 'api/forge/bim360/hubs/' + project.hubId + '/projects/' + project.projectId + '/quality-issues',
-      success: function (response) {
-        issues = issues.concat(response);
-        $("#loadingdata").remove();
-        $("#chartscontainer").empty();
-        createChart('issueStatus', 'Issues by Status', issues, 'attributes.status');
-        createChart('issueOwner', 'Issues by Owner', issues, 'attributes.owner');
-        createChart('issueAssignedTo', 'Issues by Assigned To', issues, 'attributes.assigned_to');
-        createChart('issueAnsweredBy', 'Issues by Answered By', issues, 'attributes.answered_by');
-        createChart('issueRootCause', 'By root cause', issues, 'attributes.root_cause');
-      }
-    })
-  })
+}
+
+function drawCharts(data) {
+  $("#loading").remove();
+  $("#chartscontainer").empty();
+  createChart('issueStatus', 'Issues by Status', data, 'attributes.status');
+  createChart('issueOwner', 'Issues by Owner', data, 'attributes.owner');
+  createChart('issueAssignedTo', 'Issues by Assigned To', data, 'attributes.assigned_to');
+  createChart('issueAnsweredBy', 'Issues by Answered By', data, 'attributes.answered_by');
+  createChart('issueRootCause', 'By root cause', data, 'attributes.root_cause');
 }
 
 function createChart(name, title, data, attribute) {
@@ -132,10 +139,13 @@ function createChart(name, title, data, attribute) {
 
 function countOccurrences(data, attribute) {
   var res = {};
-  data.forEach(function (entry) {
-    var value = (attribute.split('.').reduce((a, v) => a[v], entry) || "N/A");
-    if (res[value] == null) res[value] = 0;
-    res[value]++
+  Object.keys(data).forEach(function (key) {
+    if (data[key] === null) return;
+    data[key].forEach(function (entry) {
+      var value = (attribute.split('.').reduce((a, v) => a[v], entry) || "N/A");
+      if (res[value] == null) res[value] = 0;
+      res[value]++
+    })
   })
   return res;
 }
