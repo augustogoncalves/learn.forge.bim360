@@ -85,15 +85,20 @@ function updateSelected() {
     if (!$(item).hasClass('active')) return;
     projectIds.push({ hubId: $(item).attr('hubId'), projectId: $(item).attr('projectId') });
   })
-
+  var issues = [];
   projectIds.forEach(function (project) {
+    $("#charts").append('<div id="loadingdata" class="loadingspinner"></div>');
     jQuery.ajax({
       url: 'api/forge/bim360/hubs/' + project.hubId + '/projects/' + project.projectId + '/quality-issues',
-      success: function (issues) {
+      success: function (response) {
+        issues = issues.concat(response);
+        $("#loadingdata").remove();
+        $("#chartscontainer").empty();
         createChart('issueStatus', 'Issues by Status', issues, 'attributes.status');
         createChart('issueOwner', 'Issues by Owner', issues, 'attributes.owner');
         createChart('issueAssignedTo', 'Issues by Assigned To', issues, 'attributes.assigned_to');
         createChart('issueAnsweredBy', 'Issues by Answered By', issues, 'attributes.answered_by');
+        createChart('issueRootCause', 'By root cause', issues, 'attributes.root_cause');
       }
     })
   })

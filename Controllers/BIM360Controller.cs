@@ -81,19 +81,20 @@ namespace forgeSample.Controllers
             return issuesContainer["id"];
         }
 
-        private async Task<JArray> GetResourceAsync(string containerId, string resource)
+        private async Task<JObject> GetResourceAsync(string containerId, string resource, int offset = 0)
         {
             RestClient client = new RestClient(BASE_URL);
-            RestRequest request = new RestRequest("/issues/v1/containers/{container_id}/{resource}", RestSharp.Method.GET);
+            RestRequest request = new RestRequest("/issues/v1/containers/{container_id}/{resource}?page[limit]=50&page[offset]={offset}", RestSharp.Method.GET);
             request.AddParameter("container_id", containerId, ParameterType.UrlSegment);
             request.AddParameter("resource", resource, ParameterType.UrlSegment);
+            request.AddParameter("offset", offset, ParameterType.UrlSegment);
             request.AddHeader("Authorization", "Bearer " + Credentials.TokenInternal);
             IRestResponse response = await client.ExecuteTaskAsync(request);
             if (response.StatusCode != HttpStatusCode.OK) throw new Exception("Cannot request " + resource);
-            return JArray.FromObject(JObject.Parse(response.Content)["data"]);
+            return JObject.Parse(response.Content);
         }
 
-        [HttpGet]
+        /*[HttpGet]
         [Route("api/forge/bim360/hubs/{hubId}/projects/{projectId}/root-causes")]
         public async Task<JArray> GetRootCausesAsync(string hubId, string projectId)
         {
@@ -101,7 +102,7 @@ namespace forgeSample.Controllers
             if (Credentials == null) { return null; }
 
             return await GetResourceAsync(await GetContainerAsync(hubId, projectId), "root-causes");
-        }
+        }*/
 
         [HttpGet]
         [Route("api/forge/bim360/hubs/{hubId}/projects/{projectId}/quality-issues")]
@@ -110,7 +111,20 @@ namespace forgeSample.Controllers
             Credentials = await Credentials.FromSessionAsync(base.Request.Cookies, Response.Cookies);
             if (Credentials == null) { return null; }
 
-            return await GetResourceAsync(await GetContainerAsync(hubId, projectId), "quality-issues");
+            JArray issues = new JArray();
+            dynamic response = null;
+            int offset = 0;
+            string next = null;
+            do
+            {
+                response = await GetResourceAsync(await GetContainerAsync(hubId, projectId), "quality-issues", offset);
+                issues.Merge(response.data);
+                offset += 50;
+                next = (string)response.links.next;
+            } while (response.links.next != null);
+
+
+            return issues;
         }
     }
 }
