@@ -85,7 +85,7 @@ function updateSelected() {
   $('.list-group-item').each(function (i, item) {
     var id = $(item).attr('hubId') + '|' + $(item).attr('projectId');
     if (!$(item).hasClass('active')) {
-      if (projectData[id] !== null) { projectData[id] = null; drawCharts(projectData); }
+      if (projectData[id] !== null) { projectData[id] = null; $("#charts").append('<div id="loading" class="loadingspinner"></div>'); drawCharts(projectData); }
       projectData[id] = null;
     }
     else if (projectData[id] === undefined || projectData[id] === null) {
@@ -104,14 +104,15 @@ function updateSelected() {
 function drawCharts(data) {
   $("#loading").remove();
   $("#chartscontainer").empty();
-  createChart('issueStatus', 'Issues by Status', data, 'attributes.status');
-  createChart('issueOwner', 'Issues by Owner', data, 'attributes.owner');
-  createChart('issueAssignedTo', 'Issues by Assigned To', data, 'attributes.assigned_to');
-  createChart('issueAnsweredBy', 'Issues by Answered By', data, 'attributes.answered_by');
-  createChart('issueRootCause', 'By root cause', data, 'attributes.root_cause');
+  createPieChart('issueStatus', 'Issues by Status', data, 'attributes.status');
+  createPieChart('issueOwner', 'Issues by Owner', data, 'attributes.owner.name');
+  createPieChart('issueCreatedBy', 'Issues by Created by', data, 'attributes.created_by.name');
+  createPieChart('issueAssignedTo', 'Issues by Assigned To', data, 'attributes.assigned_to.name');
+  createPieChart('issueAnsweredBy', 'Issues by Answered By', data, 'attributes.answered_by.name');
+  createPieChart('issueRootCause', 'By root cause', data, 'attributes.root_cause');
 }
 
-function createChart(name, title, data, attribute) {
+function createPieChart(name, title, data, attribute) {
   $("#chartscontainer").append('<li class="flex-item"><canvas id="' + name + '" width="350" height="350"></canvas></li>');
   var chartData = countOccurrences(data, attribute);
   var chartColors = generateColors(Object.keys(chartData).length);

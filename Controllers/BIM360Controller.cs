@@ -81,6 +81,20 @@ namespace forgeSample.Controllers
             return issuesContainer["id"];
         }
 
+        public async Task<JArray> GetUsers(string accountId)
+        {
+            TwoLeggedApi oauth = new TwoLeggedApi();
+            dynamic bearer = await oauth.AuthenticateAsync(Credentials.GetAppSetting("FORGE_CLIENT_ID"), Credentials.GetAppSetting("FORGE_CLIENT_SECRET"), "client_credentials", new Scope[] { Scope.AccountRead });
+
+            RestClient client = new RestClient(BASE_URL);
+            RestRequest request = new RestRequest("/hq/v1/accounts/{account_id}/users?limit=100", RestSharp.Method.GET);
+            request.AddParameter("account_id", accountId.Replace("b.", string.Empty), ParameterType.UrlSegment);
+            request.AddHeader("Authorization", "Bearer " + bearer.access_token);
+            IRestResponse response = await client.ExecuteTaskAsync(request);
+            if (response.StatusCode != HttpStatusCode.OK) return null;
+            return JArray.Parse(response.Content);
+        }
+
         private async Task<JObject> GetResourceAsync(string containerId, string resource, int offset = 0)
         {
             RestClient client = new RestClient(BASE_URL);
@@ -94,22 +108,14 @@ namespace forgeSample.Controllers
             return JObject.Parse(response.Content);
         }
 
-        /*[HttpGet]
-        [Route("api/forge/bim360/hubs/{hubId}/projects/{projectId}/root-causes")]
-        public async Task<JArray> GetRootCausesAsync(string hubId, string projectId)
-        {
-            Credentials = await Credentials.FromSessionAsync(base.Request.Cookies, Response.Cookies);
-            if (Credentials == null) { return null; }
-
-            return await GetResourceAsync(await GetContainerAsync(hubId, projectId), "root-causes");
-        }*/
-
         [HttpGet]
         [Route("api/forge/bim360/hubs/{hubId}/projects/{projectId}/quality-issues")]
         public async Task<JArray> GetQualityIssuesAsync(string hubId, string projectId)
         {
             Credentials = await Credentials.FromSessionAsync(base.Request.Cookies, Response.Cookies);
             if (Credentials == null) { return null; }
+
+            JArray users = await GetUsers(hubId);
 
             JArray issues = new JArray();
             dynamic response = null;
@@ -121,8 +127,20 @@ namespace forgeSample.Controllers
                 offset += 50;
             } while (!string.IsNullOrEmpty((string)response.links.next));
 
+            foreach (dynamic issue in issues)
+            {
+                if (issue.attributes.created_by != null) issue.attributes.owner = GetUserById(users, (string)issue.attributes.owner);
+                if (issue.attributes.created_by != null) issue.attributes.created_by = GetUserById(users, (string)issue.attributes.created_by);
+                if (issue.attributes.created_by != null) issue.attributes.assigned_to = GetUserById(users, (string)issue.attributes.assigned_to);
+                if (issue.attributes.created_by != null) issue.attributes.answered_by = GetUserById(users, (string)issue.attributes.answered_by);
+            }
 
             return issues;
+        }
+
+        public JObject GetUserById(JArray users, string userId)
+        {
+            return JObject.FromObject((from dynamic u in users where u.uid == userId select new { name = u.name, image_url = u.image_url }).FirstOrDefault());
         }
     }
 }
