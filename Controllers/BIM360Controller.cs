@@ -71,6 +71,71 @@ namespace forgeSample.Controllers
 
         private const string BASE_URL = "https://developer.api.autodesk.com";
 
+        /// <summary>
+        /// GET TreeNode passing the ID
+        /// </summary>
+        [HttpGet]
+        [Route("api/forge/bim360/hubs/{hubId}/users")]
+        public async Task<JArray> GetProjectByUser(string hubId)
+        {
+            TwoLeggedApi oauth = new TwoLeggedApi();
+            dynamic bearer = await oauth.AuthenticateAsync(Credentials.GetAppSetting("FORGE_CLIENT_ID"), Credentials.GetAppSetting("FORGE_CLIENT_SECRET"), "client_credentials", new Scope[] { Scope.AccountRead, Scope.DataRead });
+            JArray users = await GetUsers(hubId, bearer.access_token);
+            foreach (dynamic user in users)
+            {
+                user.projects = new JArray();
+                user.projects_count = 0;
+
+                if (user.uid == null) continue; // not activated yet
+                dynamic projects = await GetProjectsAsync(hubId, (string)user.uid, (string)bearer.access_token);
+                if (projects == null) continue;
+                foreach (dynamic project in projects.data)
+                {
+                    dynamic projectInfo = new JObject();
+                    projectInfo.name = project.attributes.name;
+                    projectInfo.id = project.id;
+                    user.projects.Add(projectInfo);
+                }
+                user.projects_count = ((JArray)user.projects).Count;
+            }
+
+            return new JArray(users.OrderByDescending(u => (int)u["projects_count"]));
+        }
+
+        public async Task<JObject> GetProjectsAsync(string hubId, string userId, string accessToken, int attempt = 0)
+        {
+            RestClient client = new RestClient(BASE_URL);
+            RestRequest request = new RestRequest("project/v1/hubs/{hubId}/projects?page[limit]=100", RestSharp.Method.GET);
+            request.AddParameter("hubId", hubId, ParameterType.UrlSegment);
+            request.AddHeader("Authorization", "Bearer " + accessToken);
+            request.AddHeader("x-user-id", userId);
+            IRestResponse response = await client.ExecuteTaskAsync(request);
+            if (response.StatusCode == HttpStatusCode.OK)
+                return JObject.Parse(response.Content);
+            else if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                if (attempt > 5) return null;
+                int retryAfter = int.Parse(response.Headers.ToList().Find(h => h.Name == "Retry-After").Value.ToString());
+                System.Threading.Thread.Sleep(retryAfter * 1000);
+                return await GetProjectsAsync(hubId, userId, accessToken, ++attempt);
+            }
+            return null;
+        }
+
+        /*public async Task<JArray> GetAccountProjectsAsync(string accountId)
+        {
+            TwoLeggedApi oauth = new TwoLeggedApi();
+            dynamic bearer = await oauth.AuthenticateAsync(Credentials.GetAppSetting("FORGE_CLIENT_ID"), Credentials.GetAppSetting("FORGE_CLIENT_SECRET"), "client_credentials", new Scope[] { Scope.AccountRead });
+
+            RestClient client = new RestClient(BASE_URL);
+            RestRequest request = new RestRequest("hq/v1/accounts/{account_id}/projects", RestSharp.Method.GET);
+            request.AddParameter("account_id", accountId.Replace("b.", string.Empty), ParameterType.UrlSegment);
+            request.AddHeader("Authorization", "Bearer " + bearer.access_token);
+            IRestResponse response = await client.ExecuteTaskAsync(request);
+            if (response.StatusCode != HttpStatusCode.OK) return null;
+            return JArray.Parse(response.Content);
+        }*/
+
         private async Task<string> GetContainerAsync(string hubId, string projectId)
         {
             ProjectsApi projectsApi = new ProjectsApi();
@@ -81,18 +146,21 @@ namespace forgeSample.Controllers
             return issuesContainer["id"];
         }
 
-        public async Task<JArray> GetUsers(string accountId)
+        public async Task<JArray> GetUsers(string hubId, string accessToken, JArray users = null, int offset = 0)
         {
-            TwoLeggedApi oauth = new TwoLeggedApi();
-            dynamic bearer = await oauth.AuthenticateAsync(Credentials.GetAppSetting("FORGE_CLIENT_ID"), Credentials.GetAppSetting("FORGE_CLIENT_SECRET"), "client_credentials", new Scope[] { Scope.AccountRead });
-
+            users = (users == null ? new JArray() : users);
             RestClient client = new RestClient(BASE_URL);
-            RestRequest request = new RestRequest("/hq/v1/accounts/{account_id}/users?limit=100", RestSharp.Method.GET);
-            request.AddParameter("account_id", accountId.Replace("b.", string.Empty), ParameterType.UrlSegment);
-            request.AddHeader("Authorization", "Bearer " + bearer.access_token);
+            RestRequest request = new RestRequest("/hq/v1/accounts/{account_id}/users?limit={limit}&offset={offset}&field=name,uid", RestSharp.Method.GET);
+            request.AddParameter("account_id", hubId.Replace("b.", string.Empty), ParameterType.UrlSegment);
+            request.AddParameter("limit", 100);
+            request.AddParameter("offset", offset);
+            request.AddHeader("Authorization", "Bearer " + accessToken);
             IRestResponse response = await client.ExecuteTaskAsync(request);
             if (response.StatusCode != HttpStatusCode.OK) return null;
-            return JArray.Parse(response.Content);
+            JArray page = JArray.Parse(response.Content);
+            users.Merge(page);
+            if (page.Count >= 100) await GetUsers(hubId, accessToken, users, offset += 100);
+            return users;
         }
 
         private async Task<JObject> GetResourceAsync(string containerId, string resource, int offset = 0)
@@ -115,7 +183,10 @@ namespace forgeSample.Controllers
             Credentials = await Credentials.FromSessionAsync(base.Request.Cookies, Response.Cookies);
             if (Credentials == null) { return null; }
 
-            JArray users = await GetUsers(hubId);
+            TwoLeggedApi oauth = new TwoLeggedApi();
+            dynamic bearer = await oauth.AuthenticateAsync(Credentials.GetAppSetting("FORGE_CLIENT_ID"), Credentials.GetAppSetting("FORGE_CLIENT_SECRET"), "client_credentials", new Scope[] { Scope.AccountRead });
+
+            JArray users = await GetUsers(hubId, bearer.access_token);
 
             JArray issues = new JArray();
             dynamic response = null;
